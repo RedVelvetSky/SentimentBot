@@ -1,8 +1,13 @@
 import logging
+import os
 import random
 import asyncio
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+import pandas as pd
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Configure logging for debugging purposes
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -29,7 +34,7 @@ async def random_message_sender(context: ContextTypes.DEFAULT_TYPE):
 
 # Main application setup
 if __name__ == '__main__':
-    application = ApplicationBuilder().token("7839045208:AAFmz_8jQBsiKObSscBvwFxKErKqKWIz560").build()
+    application = ApplicationBuilder().token(os.getenv("TELEGRAM_BOT_TOKEN")).build()
 
     # Add a start handler to respond to /start command
     start_handler = CommandHandler('start', start)
