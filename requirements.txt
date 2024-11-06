@@ -1,0 +1,6 @@
+python-telegram-bot>=21.5
+openai
+clickhouse_connect>=0.7.19
+numpy
+pandas
+asyncio

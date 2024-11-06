@@ -26,14 +26,16 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Constants from Environment Variables
-CHECK_INTERVAL_SECONDS = int(os.getenv("CHECK_INTERVAL_SECONDS", 300))  # Default to 5 minutes
+CHECK_INTERVAL_SECONDS = int(os.getenv("CHECK_INTERVAL_SECONDS", 120))  # Default to 2 minutes
 CHAT_IDS = [-1002240327148, -1002167264676]  # Example Chat IDs to monitor
 EXCLUDED_SENDERS_ID = [609517172]  # Example Sender IDs to exclude
-SENTIMENT_THRESHOLD = float(os.getenv("SENTIMENT_THRESHOLD", "-0.5"))
+SENTIMENT_THRESHOLD_BASE = float(os.getenv("SENTIMENT_THRESHOLD", "-0.5"))
+SENTIMENT_THRESHOLD_URGENT = float(os.getenv("SENTIMENT_THRESHOLD_URGENT", "-0.5"))
 
 # Telegram Configuration
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")  # Ensure this is set in your .env
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+
 
 class SentimentAnalyzer:
     def __init__(self, bot_context: ContextTypes.DEFAULT_TYPE):
@@ -204,9 +206,10 @@ class SentimentAnalyzer:
             logger.error(f"Error fetching messages: {e}")
             return pd.DataFrame()
 
-    async def send_telegram_notification(self, message):
+    async def send_telegram_notification(self, message, notification=False):
         try:
-            await self.bot_context.bot.send_message(chat_id=-1002303184948, text=message, parse_mode='Markdown')
+            await self.bot_context.bot.send_message(chat_id=-1002303184948, text=message, parse_mode='Markdown',
+                                                    disable_notification=notification)
             logger.info("Telegram notification sent successfully.")
         except TelegramError as e:
             logger.error(f"Error sending Telegram notification: {e}")
@@ -218,6 +221,67 @@ class SentimentAnalyzer:
         else:
             link = f"https://t.me/c/{chat_id}/{message_id}"  # Placeholder
         return link
+
+    def write_to_clickhouse(self, response_data):
+        insert_query = """
+            INSERT INTO sentiment_analysis (
+                message_id, chat_id, sender_id, message, sentiment, sentiment_intensity,
+                emotion, subjectivity, sentiment_score, sentiment_reason, emotion_confidence, created_at
+            ) VALUES
+        """
+        try:
+            values = []
+            for result in response_data:
+                # Check if message_id and chat_id combination already exists in the database
+                check_query = f"""
+                    SELECT COUNT(*) FROM sentiment_analysis 
+                    WHERE message_id = {result.get('message_id')} 
+                    AND chat_id = {result.get('chat_id')}
+                """
+                existing_count = self.client.query(check_query).result_rows[0][0]
+
+                if existing_count > 0:
+                    logger.info(
+                        f"Skipping duplicate message {result.get('message_id')} in chat {result.get('chat_id')}")
+                    continue
+
+                data = self.fetch_data_by_id(result.get('message_id'), result.get('chat_id'))
+                if data:
+                    original_message, sender_id = data
+                else:
+                    original_message = "N/A"
+                    sender_id = "0"
+
+                # Truncate microseconds from created_at
+                created_at = datetime.utcnow().replace(microsecond=0).isoformat()
+
+                values.append((
+                    result.get('message_id'),
+                    result.get('chat_id'),
+                    sender_id,
+                    original_message,
+                    result.get('sentiment'),
+                    result.get('sentiment_intensity', 'unknown'),
+                    result.get('emotion'),
+                    result.get('subjectivity'),
+                    result.get('sentiment_score', 0),
+                    result.get('sentiment_reason', 'No reason provided'),
+                    result.get('emotion_confidence', 0),
+                    created_at  # Use the truncated version
+                ))
+
+            if values:
+                # Construct the values part of the query
+                values_str = ", ".join([f"({', '.join(['%s'] * len(v))})" for v in values])
+                flat_values = [item for v in values for item in v]
+                full_query = insert_query + values_str
+                self.client.command(full_query, flat_values)
+                logger.info(f"Inserted {len(values)} records into ClickHouse.")
+            else:
+                logger.info("No new data to insert into ClickHouse.")
+
+        except Exception as e:
+            logger.error(f"Error inserting data into ClickHouse: {e}")
 
     async def log_sentiment(self, sentiment_results):
         for result in sentiment_results:
@@ -252,7 +316,7 @@ class SentimentAnalyzer:
             )
             logger.info(log_message)
 
-            if sentiment_score <= SENTIMENT_THRESHOLD:
+            if sentiment_score <= SENTIMENT_THRESHOLD_URGENT:
                 message_link = self.generate_message_link(chat_id, message_id)
                 notification_message = (
                     f"⚠️ *Low Sentiment Alert*\n"
@@ -267,7 +331,24 @@ class SentimentAnalyzer:
                     f"*Confidence:* {emotion_confidence}\n"
                     f"[View Message]({message_link})"
                 )
-                await self.send_telegram_notification(notification_message)
+                await self.send_telegram_notification(notification_message, notification=True)
+                logger.info(f"⚠️ Low Sentiment detected for message {message_id}. Sent notification.")
+            elif sentiment_score <= SENTIMENT_THRESHOLD_BASE:
+                message_link = self.generate_message_link(chat_id, message_id)
+                notification_message = (
+                    f"⚠️ *Low Sentiment Alert*\n"
+                    f"*Message ID:* {message_id}\n"
+                    f"*Chat ID:* {chat_id}\n"
+                    f"*Original Message:* {original_message}\n"
+                    f"*Sentiment:* {sentiment}\n"
+                    f"*Sentiment Score:* {sentiment_score}\n"
+                    f"*Sentiment Reason:* {sentiment_reason}\n"
+                    f"*Intensity:* {sentiment_intensity}\n"
+                    f"*Emotion:* {emotion}\n"
+                    f"*Confidence:* {emotion_confidence}\n"
+                    f"[View Message]({message_link})"
+                )
+                await self.send_telegram_notification(notification_message, notification=False)
                 logger.info(f"⚠️ Low Sentiment detected for message {message_id}. Sent notification.")
 
     async def run(self):
@@ -292,7 +373,7 @@ class SentimentAnalyzer:
                     if sentiment_results:
                         await self.log_sentiment(sentiment_results)
                         # Uncomment the next line if you wish to log sentiments to ClickHouse
-                        # await self.write_to_clickhouse(sentiment_results)
+                        await self.write_to_clickhouse(sentiment_results)
                         self.latest_created_at = pd.to_datetime(df['created_at']).max()
                         logger.info(f"Updated latest_created_at: {self.latest_created_at}")
                 else:
@@ -305,13 +386,16 @@ class SentimentAnalyzer:
         except Exception as e:
             logger.error(f"Unexpected error: {e}")
 
+
 # Define the /start command handler
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(chat_id=update.effective_chat.id, text="Hello! Starting sentiment analysis.")
     # Start the sentiment analysis task
     analyzer = SentimentAnalyzer(context)
     context.application.create_task(analyzer.run())
-    await context.bot.send_message(chat_id=update.effective_chat.id, text="Sentiment analysis is now running in the background.")
+    await context.bot.send_message(chat_id=update.effective_chat.id,
+                                   text="Sentiment analysis is now running in the background.")
+
 
 # Main application setup
 if __name__ == '__main__':

@@ -1,3 +1,7 @@
+####################################################
+# HERE IS EXAMPLE HOW TO SEND CONDITIONAL MESSAGES #
+####################################################
+
 import logging
 import os
 import random
