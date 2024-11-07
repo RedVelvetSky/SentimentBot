@@ -207,7 +207,7 @@ class SentimentAnalyzer:
             logger.error(f"Error fetching messages: {e}")
             return pd.DataFrame()
 
-    async def send_telegram_notification(self, message, notification=False):
+    async def send_telegram_notification(self, message, notification=True):
         try:
             await self.bot_context.bot.send_message(chat_id=os.getenv("TELEGRAM_CHAT_ID"), text=message, parse_mode='Markdown',
                                                     disable_notification=notification)
@@ -332,7 +332,7 @@ class SentimentAnalyzer:
                     f"*Confidence:* {emotion_confidence}\n"
                     f"[View Message]({message_link})"
                 )
-                await self.send_telegram_notification(notification_message, notification=True)
+                await self.send_telegram_notification(notification_message, notification=False)
                 logger.info(f"⚠️ Low Sentiment detected for message {message_id}. Sent notification.")
             elif sentiment_score <= SENTIMENT_THRESHOLD_BASE:
                 message_link = self.generate_message_link(chat_id, message_id)
@@ -349,7 +349,7 @@ class SentimentAnalyzer:
                     f"*Confidence:* {emotion_confidence}\n"
                     f"[View Message]({message_link})"
                 )
-                await self.send_telegram_notification(notification_message, notification=False)
+                await self.send_telegram_notification(notification_message, notification=True)
                 logger.info(f"⚠️ Low Sentiment detected for message {message_id}. Sent notification.")
 
     async def run(self):
