@@ -27,8 +27,8 @@ logger = logging.getLogger(__name__)
 
 # Constants from Environment Variables
 CHECK_INTERVAL_SECONDS = int(os.getenv("CHECK_INTERVAL_SECONDS", 120))  # Default to 2 minutes
-CHAT_IDS = [-1002240327148, -1002167264676]  # Example Chat IDs to monitor
-EXCLUDED_SENDERS_ID = [609517172]  # Example Sender IDs to exclude
+CHAT_IDS = [-1002240327148, -1002167264676]
+EXCLUDED_SENDERS_ID = [609517172, 6441628071, 839584406, 607662689, 696267355]
 SENTIMENT_THRESHOLD_BASE = float(os.getenv("SENTIMENT_THRESHOLD", "-0.5"))
 SENTIMENT_THRESHOLD_URGENT = float(os.getenv("SENTIMENT_THRESHOLD_URGENT", "-0.8"))
 
@@ -58,7 +58,7 @@ class SentimentAnalyzer:
         )
 
         # Initialize Timestamps
-        self.latest_created_at = self.get_latest_created_at() - timedelta(minutes=10)
+        self.latest_created_at = self.get_latest_created_at() - timedelta(minutes=5)
         self.last_daily_notification_date = datetime.utcnow().date()
 
     def get_latest_created_at(self):
@@ -88,7 +88,7 @@ class SentimentAnalyzer:
         try:
             messages = self.convert_timestamp_to_string(messages)
             batch_text = "\n\n".join(
-                [f"Message ID {msg['message_id']} in Chat ID {msg['chat_id']}: {msg['message']}" for msg in messages]
+                [f"Message ID {msg['message_id']} in Chat ID {msg['chat_id']} with Sender ID {msg['sender_id']}: {msg['message']}" for msg in messages]
             )
             logger.info(f"Batch text for API: {batch_text[:500]}...")  # Log only first 500 chars
 
@@ -105,16 +105,25 @@ class SentimentAnalyzer:
                                 "properties": {
                                     "message_id": {"type": "number"},
                                     "chat_id": {"type": "number"},
+                                    "sender_id": {"type": "number"},
                                     "sentiment": {"type": "string"},
                                     "sentiment_intensity": {"type": "number"},
-                                    "emotion": {"type": "string"},
+                                    "emotion": {
+                                        "type": "string",
+                                        "enum": [
+                                            "Curiosity", "Excitement", "Frustration", "Joy", "Trust", "Anticipation",
+                                            "Disappointment", "Neutral", "Confusion", "Anger", "Satisfaction", "Enthusiasm",
+                                            "Sadness", "Hopefulness", "Gratefulness", "Skepticism", "Anxiety", "Relief",
+                                            "Surprise", "Indifference"
+                                        ]
+                                    },
                                     "subjectivity": {"type": "number"},
                                     "sentiment_score": {"type": "number"},
                                     "sentiment_reason": {"type": "string"},
                                     "emotion_confidence": {"type": "number"}
                                 },
                                 "required": [
-                                    "message_id", "chat_id", "sentiment",
+                                    "message_id", "chat_id", "sender_id", "sentiment",
                                     "sentiment_intensity", "emotion",
                                     "subjectivity", "sentiment_score",
                                     "sentiment_reason", "emotion_confidence"
@@ -130,8 +139,31 @@ class SentimentAnalyzer:
             completion = self.clientai.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
-                    {"role": "system",
-                     "content": "You are a sentiment analysis model. Analyze the sentiment for the following messages and return sentiment-specific features in JSON format."},
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are a sentiment analysis model for Spell - Crypto Airdrop Wallet messages. "
+                            "Classify each message as positive, negative, or neutral with scores:\n"
+                            "• **0.8-1.0**: Very Positive (e.g., 'Fucking Love it, amazing!!!')\n"
+                            "• **0.3-0.7**: Positive\n"
+                            "• **0.1-0.2**: Slightly Positive\n"
+                            "• **0**: Neutral\n"
+                            "• **-0.1 to -0.2**: Slightly Negative\n"
+                            "• **-0.3 to -0.6**: Negative\n"
+                            "• **-0.7 to -1.0**: (e.g., 'You scummed us 😡😡😡 where our money') Very Negative\n\n"
+                            "**Guidelines:**\n"
+                            "- Use scores ≥0.8 or ≤-0.8 for strong sentiments to flag for moderation.\n"
+                            "- Emoji-only: use **0.2-0.4** for positive emojis unless paired with enthusiastic text.\n"
+                            "- messages where only /daily_puzzle has sentiment of 0.05"
+                            "- High emoji scores (≥0.7) require clear enthusiastic language.\n\n"
+                            "**Examples:**\n"
+                            "- 'Love it!!!' → 0.8, Enthusiasm\n"
+                            "- '🚀' → 0.2, Excitement\n"
+                            "- 'I hate this.' → -0.8, Anger\n"
+                            "- 'Hello!' → 0, Neutral\n\n"
+                            "Return the analysis as JSON."
+                        )
+                    },
                     {"role": "user", "content": batch_text}
                 ],
                 functions=[function_schema],
@@ -223,6 +255,24 @@ class SentimentAnalyzer:
             link = f"https://t.me/c/{chat_id}/{message_id}"  # Placeholder
         return link
 
+    def is_duplicate(self, message_id, sender_id):
+        query = """
+            SELECT COUNT(*) AS count
+            FROM sentiment_analysis
+            WHERE message_id = %s AND sender_id = %s
+            HAVING count > 1
+        """
+        try:
+            logger.info(f"Checking duplicate for message_id: {message_id}, sender_id: {sender_id}")
+            result = self.client.query(query, (message_id, sender_id))
+            logger.info(f"Result rows: {result.result_rows}")
+            exists = bool(result.result_rows)
+            logger.info(f"Duplicate found: {exists}")
+            return exists
+        except Exception as e:
+            logger.error(f"Error checking for duplicate: {e}")
+            return False
+
     def write_to_clickhouse(self, response_data):
         insert_query = """
             INSERT INTO sentiment_analysis (
@@ -233,32 +283,26 @@ class SentimentAnalyzer:
         try:
             values = []
             for result in response_data:
-                # Check if message_id and chat_id combination already exists in the database
-                check_query = f"""
-                    SELECT COUNT(*) FROM sentiment_analysis 
-                    WHERE message_id = {result.get('message_id')} 
-                    AND chat_id = {result.get('chat_id')}
-                """
-                existing_count = self.client.query(check_query).result_rows[0][0]
+                message_id = result.get('message_id')
+                chat_id = result.get('chat_id')
+                sender_id = result.get('sender_id')
 
-                if existing_count > 0:
-                    logger.info(
-                        f"Skipping duplicate message {result.get('message_id')} in chat {result.get('chat_id')}")
+                if self.is_duplicate(message_id, sender_id):
+                    logger.info(f"Skipping duplicate message {message_id} in chat {sender_id}")
                     continue
 
-                data = self.fetch_data_by_id(result.get('message_id'), result.get('chat_id'))
+                data = self.fetch_data_by_id(message_id, chat_id)
                 if data:
                     original_message, sender_id = data
                 else:
                     original_message = "N/A"
                     sender_id = "0"
 
-                # Truncate microseconds from created_at
                 created_at = datetime.utcnow().replace(microsecond=0).isoformat()
 
                 values.append((
-                    result.get('message_id'),
-                    result.get('chat_id'),
+                    message_id,
+                    chat_id,
                     sender_id,
                     original_message,
                     result.get('sentiment'),
@@ -268,11 +312,10 @@ class SentimentAnalyzer:
                     result.get('sentiment_score', 0),
                     result.get('sentiment_reason', 'No reason provided'),
                     result.get('emotion_confidence', 0),
-                    created_at  # Use the truncated version
+                    created_at
                 ))
 
             if values:
-                # Construct the values part of the query
                 values_str = ", ".join([f"({', '.join(['%s'] * len(v))})" for v in values])
                 flat_values = [item for v in values for item in v]
                 full_query = insert_query + values_str
@@ -318,6 +361,7 @@ class SentimentAnalyzer:
             logger.info(log_message)
 
             if sentiment_score <= SENTIMENT_THRESHOLD_URGENT:
+                logger.info("Urgent alert")
                 message_link = self.generate_message_link(chat_id, message_id)
                 notification_message = (
                     f"⚠️ *Low Sentiment Alert*\n"
@@ -335,6 +379,7 @@ class SentimentAnalyzer:
                 await self.send_telegram_notification(notification_message, notification=False)
                 logger.info(f"⚠️ Low Sentiment detected for message {message_id}. Sent notification.")
             elif sentiment_score <= SENTIMENT_THRESHOLD_BASE:
+                logger.info("Urgent alert")
                 message_link = self.generate_message_link(chat_id, message_id)
                 notification_message = (
                     f"⚠️ *Low Sentiment Alert*\n"
@@ -360,21 +405,20 @@ class SentimentAnalyzer:
                 if self.latest_created_at:
                     loop = asyncio.get_event_loop()
                     df = await loop.run_in_executor(
-                        None, self.fetch_messages_after_timestamp, self.latest_created_at, CHAT_IDS, EXCLUDED_SENDERS_ID
-                    )
+                        None, self.fetch_messages_after_timestamp, self.latest_created_at, CHAT_IDS, EXCLUDED_SENDERS_ID)
                 else:
                     loop = asyncio.get_event_loop()
                     df = await loop.run_in_executor(
                         None, self.fetch_messages_after_timestamp,
-                        (current_time - timedelta(minutes=30)).isoformat(), CHAT_IDS, EXCLUDED_SENDERS_ID
-                    )
+                        (current_time - timedelta(minutes=5)).isoformat(), CHAT_IDS, EXCLUDED_SENDERS_ID)
 
                 if not df.empty:
+                    logger.info("df is not empty in main loop")
                     sentiment_results = await self.send_to_external_api(df)
                     if sentiment_results:
                         await self.log_sentiment(sentiment_results)
                         # Uncomment the next line if you wish to log sentiments to ClickHouse
-                        await self.write_to_clickhouse(sentiment_results)
+                        self.write_to_clickhouse(sentiment_results)
                         self.latest_created_at = pd.to_datetime(df['created_at']).max()
                         logger.info(f"Updated latest_created_at: {self.latest_created_at}")
                 else:
