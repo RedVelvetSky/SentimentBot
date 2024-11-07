@@ -6,14 +6,14 @@ from datetime import datetime, timedelta
 
 import clickhouse_connect
 import pandas as pd
-from dotenv import load_dotenv
 from openai import OpenAI, OpenAIError
 from telegram import Update
 from telegram.error import TelegramError
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
-# Load environment variables from .env file
-load_dotenv()
+if os.name == "nt":  # Windows
+    from dotenv import load_dotenv
+    load_dotenv()
 
 # Configure Logging
 logging.basicConfig(
@@ -208,7 +208,7 @@ class SentimentAnalyzer:
 
     async def send_telegram_notification(self, message, notification=False):
         try:
-            await self.bot_context.bot.send_message(chat_id=-1002303184948, text=message, parse_mode='Markdown',
+            await self.bot_context.bot.send_message(chat_id=os.getenv("TELEGRAM_CHAT_ID"), text=message, parse_mode='Markdown',
                                                     disable_notification=notification)
             logger.info("Telegram notification sent successfully.")
         except TelegramError as e:
