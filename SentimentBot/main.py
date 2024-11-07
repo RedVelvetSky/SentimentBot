@@ -90,7 +90,7 @@ class SentimentAnalyzer:
             batch_text = "\n\n".join(
                 [f"Message ID {msg['message_id']} in Chat ID {msg['chat_id']} with Sender ID {msg['sender_id']}: {msg['message']}" for msg in messages]
             )
-            logger.info(f"Batch text for API: {batch_text[:500]}...")  # Log only first 500 chars
+            logger.info(f"Batch text for API: {batch_text[:500]}...")
 
             function_schema = {
                 "name": "analyzeSentiment",
@@ -364,7 +364,7 @@ class SentimentAnalyzer:
                 logger.info("Urgent alert")
                 message_link = self.generate_message_link(chat_id, message_id)
                 notification_message = (
-                    f"⚠️ *Low Sentiment Alert*\n"
+                    f"🆘 *Very Low Sentiment Alert* 🆘\n"
                     f"*Message ID:* {message_id}\n"
                     f"*Chat ID:* {chat_id}\n"
                     f"*Original Message:* {original_message}\n"
@@ -377,12 +377,12 @@ class SentimentAnalyzer:
                     f"[View Message]({message_link})"
                 )
                 await self.send_telegram_notification(notification_message, notification=False)
-                logger.info(f"⚠️ Low Sentiment detected for message {message_id}. Sent notification.")
+                logger.info(f"🆘 Very Low Sentiment detected for message {message_id}. Sent notification.")
             elif sentiment_score <= SENTIMENT_THRESHOLD_BASE:
                 logger.info("Urgent alert")
                 message_link = self.generate_message_link(chat_id, message_id)
                 notification_message = (
-                    f"⚠️ *Low Sentiment Alert*\n"
+                    f"⚠️ *Low Sentiment Alert* ⚠️\n"
                     f"*Message ID:* {message_id}\n"
                     f"*Chat ID:* {chat_id}\n"
                     f"*Original Message:* {original_message}\n"
