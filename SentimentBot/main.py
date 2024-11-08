@@ -28,14 +28,14 @@ logger = logging.getLogger(__name__)
 # Constants from Environment Variables
 CHECK_INTERVAL_SECONDS = int(os.getenv("CHECK_INTERVAL_SECONDS", 120))  # Default to 2 minutes
 CHAT_IDS = [-1002240327148, -1002167264676]
-EXCLUDED_SENDERS_ID = [609517172, 6441628071, 839584406, 607662689, 696267355]
+EXCLUDED_SENDERS_ID = [609517172, 6441628071, 839584406, 607662689, 696267355, 210944655]
 SENTIMENT_THRESHOLD_BASE = float(os.getenv("SENTIMENT_THRESHOLD", "-0.5"))
 SENTIMENT_THRESHOLD_URGENT = float(os.getenv("SENTIMENT_THRESHOLD_URGENT", "-0.8"))
 
 # Telegram Configuration
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 # TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-TELEGRAM_CHAT_ID = -4565161132
+TELEGRAM_CHAT_ID = -1002455147403
 
 
 class SentimentAnalyzer:
@@ -364,7 +364,7 @@ class SentimentAnalyzer:
                 logger.info("Urgent alert")
                 message_link = self.generate_message_link(chat_id, message_id)
                 notification_message = (
-                    f"🆘 *Very Low Sentiment Alert* 🆘\n"
+                    f"🔴 *High Priority Sentiment Alert* 🔴\n"
                     f"*Message ID:* {message_id}\n"
                     f"*Chat ID:* {chat_id}\n"
                     f"*Original Message:* {original_message}\n"
@@ -382,7 +382,7 @@ class SentimentAnalyzer:
                 logger.info("Urgent alert")
                 message_link = self.generate_message_link(chat_id, message_id)
                 notification_message = (
-                    f"⚠️ *Low Sentiment Alert* ⚠️\n"
+                    f"🟡 *Mid Priority Sentiment Alert* 🟡\n"
                     f"*Message ID:* {message_id}\n"
                     f"*Chat ID:* {chat_id}\n"
                     f"*Original Message:* {original_message}\n"
