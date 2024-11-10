@@ -241,7 +241,7 @@ class SentimentAnalyzer:
 
     async def send_telegram_notification(self, message, notification=True):
         try:
-            await self.bot_context.bot.send_message(chat_id=os.getenv("TELEGRAM_CHAT_ID"), text=message, parse_mode='Markdown',
+            await self.bot_context.bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message, parse_mode='Markdown',
                                                     disable_notification=notification)
             logger.info("Telegram notification sent successfully.")
         except TelegramError as e:
