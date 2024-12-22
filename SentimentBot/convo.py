@@ -5,10 +5,10 @@ from datetime import datetime, timedelta
 
 import pandas as pd
 import clickhouse_connect
-from dotenv import load_dotenv
 
-# Load environment variables from .env file
-load_dotenv()
+if os.name == "nt":  # Windows
+    from dotenv import load_dotenv
+    load_dotenv()
 
 # Configure logging
 logging.basicConfig(
