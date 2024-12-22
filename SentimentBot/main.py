@@ -11,6 +11,9 @@ from telegram import Update
 from telegram.error import TelegramError
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
+from SentimentBot.convo import schedule_daily_task
+from SentimentBot.sentiment import schedule_daily_sentiment_task
+
 if os.name == "nt":  # Windows
     from dotenv import load_dotenv
     load_dotenv()
@@ -439,9 +442,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(chat_id=update.effective_chat.id, text="Hello! Starting sentiment analysis.")
     # Start the sentiment analysis task
     analyzer = SentimentAnalyzer(context)
+
     context.application.create_task(analyzer.run())
+    context.application.create_task(schedule_daily_task())
+    # context.application.create_task(schedule_daily_sentiment_task())
+
     await context.bot.send_message(chat_id=update.effective_chat.id,
                                    text="Sentiment analysis is now running in the background.")
+    await context.bot.send_message(chat_id=update.effective_chat.id,
+                                   text="Daily metrics calculation is now running in the background.")
 
 
 # Main application setup
