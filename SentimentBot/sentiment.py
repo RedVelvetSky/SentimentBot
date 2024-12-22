@@ -3,11 +3,11 @@ import os
 import logging
 import pandas as pd
 import clickhouse_connect
-from dotenv import load_dotenv
 from datetime import datetime, timedelta
 
-# Load environment variables from .env file
-load_dotenv()
+if os.name == "nt":  # Windows
+    from dotenv import load_dotenv
+    load_dotenv()
 
 # Configure logging
 logging.basicConfig(
