@@ -51,8 +51,8 @@ def fetch_user_ids(db2_client, table_name):
 def fetch_sentiment_data(db1_client, table_name):
     end_time = datetime.utcnow()
     start_time = end_time - timedelta(days=1)
-    start_time_formatted = start_time.split(".")[0]
-    end_time_formatted = end_time.split(".")[0]
+    start_time_formatted = start_time.strftime("%Y-%m-%d %H:%M:%S")
+    end_time_formatted = end_time.strftime("%Y-%m-%d %H:%M:%S")
 
     query = f"SELECT sender_id, sentiment_score, sentiment_intensity, emotion FROM {table_name} WHERE created_at >= '{start_time_formatted}' AND created_at < '{end_time_formatted}'"
     try:
@@ -151,30 +151,7 @@ def insert_metrics(db2_client, table_name, metrics_df):
         return
 
     try:
-        # Reorder columns to match the table schema
-        ordered_columns = [
-            'average_sentiment_score',
-            'average_sentiment_intensity',
-            'total_messages',
-            'emotion1',
-            'emotion1_score',
-            'emotion2',
-            'emotion2_score',
-            'emotion3',
-            'emotion3_score',
-            'created_at'  # Ensure created_at is last
-        ]
-        metrics_df = metrics_df[ordered_columns]
-
-        # Convert DataFrame to list of dictionaries
-        records = metrics_df.to_dict('records')
-        column_names = metrics_df.columns.tolist()
-
-        logger.debug(f"Reordered records: {records}")
-        logger.debug(f"Column names: {column_names}")
-
-        # Insert records into the target table
-        db2_client.insert(table_name, records, column_names=column_names)
+        db2_client.insert_df(table_name, metrics_df)
         logger.info(f"Inserted metrics into {table_name} successfully.")
     except Exception as e:
         logger.error(f"Error inserting metrics into {table_name}: {e}")

@@ -445,7 +445,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     context.application.create_task(analyzer.run())
     context.application.create_task(schedule_daily_task())
-    # context.application.create_task(schedule_daily_sentiment_task())
+    context.application.create_task(schedule_daily_sentiment_task())
 
     await context.bot.send_message(chat_id=update.effective_chat.id,
                                    text="Sentiment analysis is now running in the background.")
